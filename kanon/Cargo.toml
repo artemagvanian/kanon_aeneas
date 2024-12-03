@@ -1,0 +1,8 @@
+[package]
+name = "kanon"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "kanon"
+path = "src/kanon.rs"
