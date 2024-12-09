@@ -104,12 +104,12 @@ theorem count_similar_rows_loop_spec
     n_similar.val = (
       kanon_instance.data
         |> List.take i.toNat
-        |> List.filter (λ other_row ↦ Record.is_similar row other_row == ok true)
+        |> List.filter (λ other_row => Record.is_similar row other_row == ok true)
         |> List.length)) :
   ∃ n,
     (KAnonymity.count_similar_rows_loop kanon_instance row n_similar i) = ok n
       ∧ n.val = (kanon_instance.data.val
-        |> List.filter (λ other_row ↦ Record.is_similar row other_row == ok true)
+        |> List.filter (λ other_row => Record.is_similar row other_row == ok true)
         |> List.length) := by
   rw [KAnonymity.count_similar_rows_loop]
   simp
@@ -181,8 +181,7 @@ decreasing_by repeat scalar_decr_tac
 theorem count_similar_rows_spec
   (kanon_instance : KAnonymity)
   (row : Record) :
-  ∃ n: Usize,
-    KAnonymity.count_similar_rows kanon_instance row = ok n
+  ∃ n, KAnonymity.count_similar_rows kanon_instance row = ok n
       ∧ List.length
         (kanon_instance.data
           |> List.filter (λ other_row => (Record.is_similar row other_row) == ok true)) = n.val := by
@@ -190,28 +189,125 @@ theorem count_similar_rows_spec
   progress
   simp_all
 
--- @[pspec]
--- theorem kanon_spec:
---   ∀ kanon_instance: KAnonymity,
---   ∃ anonymized_data: alloc.vec.Vec Record,
---     KAnonymity.anonymize kanon_instance = Result.ok anonymized_data
---       ∧ ∀ record,
---           record ∈ (anonymized_data: List Record) →
---             ∃ n, KAnonymity.count_similar_rows kanon_instance record = Result.ok n
---               ∧ n >= kanon_instance.k := by
---   intro kanon_instance
---   simp
---   rw [KAnonymity.anonymize, KAnonymity.anonymize_loop]
---   simp
---   split
---   . progress as ⟨r, hr⟩
---     . rw [ClonekanonRecord.clone]
---       simp
---       rw [KAnonymity.count_similar_rows, KAnonymity.count_similar_rows_loop]
---       simp
---       split
---       . sorry
---       . contradiction
---   . simp
+lemma filter_filter_true
+  {α: Type}
+  [hα : Inhabited α]
+  (c: alloc.vec.Vec α)
+  (i: Usize)
+  (l: alloc.vec.Vec α)
+  (hi: i.val < l.length)
+  (f: α -> Bool)
+  (hft: f (l.val.index i.toNat) == true)
+  (hc: (c: List α) = ↑(List.filter f (List.take i.toNat ↑l))) :
+  (c: List α) ++ [l.val.index i.toNat] = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)) := by
+  cases l with
+  | mk l_val _ =>
+      cases l_val with
+      | nil =>
+          have : i.val >= 0 := by scalar_tac
+          have : i.val < 0 := by scalar_tac
+          simp_all [not_lt_of_ge]
+      | cons h t =>
+        rw [take_append]
+        repeat' simp_all [leq_add_1]
+
+lemma filter_filter_false
+  {α: Type}
+  [hα : Inhabited α]
+  (c: alloc.vec.Vec α)
+  (i: Usize)
+  (l: alloc.vec.Vec α)
+  (hi: i.val < l.length)
+  (f: α -> Bool)
+  (hft: f (l.val.index i.toNat) == false)
+  (hc: (c: List α) = ↑(List.filter f (List.take i.toNat ↑l))) :
+  (c: List α) = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)) := by
+  cases l with
+  | mk l_val _ =>
+      cases l_val with
+      | nil =>
+          have : i.val >= 0 := by scalar_tac
+          have : i.val < 0 := by scalar_tac
+          simp_all [not_lt_of_ge]
+      | cons h t =>
+        rw [take_append]
+        repeat' simp_all [leq_add_1]
+
+@[pspec]
+theorem anonymize_loop_spec
+  (kanon_instance: KAnonymity)
+  (anonymized_data_i : alloc.vec.Vec Record)
+  (i : Usize)
+  (hi : i.val <= kanon_instance.data.length)
+  (hid: anonymized_data_i.length <= i.val)
+  (hd : anonymized_data_i = (
+    kanon_instance.data
+    |> List.take i.toNat
+    |> List.filter (λ row => (
+      kanon_instance.data.val
+        |> List.filter (λ other_row ↦ Record.is_similar row other_row == ok true)
+        |> List.length) >= kanon_instance.k.val))) :
+  ∃ anonymized_data, KAnonymity.anonymize_loop kanon_instance anonymized_data_i i = ok anonymized_data
+      ∧ anonymized_data = (
+        kanon_instance.data
+        |> List.filter (λ row => (
+          kanon_instance.data.val
+            |> List.filter (λ other_row ↦ Record.is_similar row other_row == ok true)
+            |> List.length) >= kanon_instance.k.val)) := by
+  rw [KAnonymity.anonymize_loop]
+  simp
+  split
+  . rename_i hil
+    progress as ⟨r, hr⟩
+    rw [ClonekanonRecord.clone]
+    simp
+    progress as ⟨n, hn⟩
+    split
+    . progress as ⟨anonymized_data_i₁, hanonymized_data_i₁⟩
+      . progress as ⟨i₁, hi₁⟩
+        progress
+        . subst hr
+          simp_all
+        . simp
+          rw [hi₁, hanonymized_data_i₁]
+          subst hr
+          exact
+            filter_filter_true
+            anonymized_data_i i kanon_instance.data hil
+            (fun row => decide (kanon_instance.k.val ≤ ↑(List.filter
+              (fun other_row => row.is_similar other_row == ok true) ↑kanon_instance.data).length))
+            (by simp_all)
+            hd
+        . assumption
+    . progress as ⟨i₁, hi₁⟩
+      progress
+      . simp
+        rw [hi₁]
+        subst hr
+        exact
+          filter_filter_false
+          anonymized_data_i i kanon_instance.data hil
+          (fun row => decide (kanon_instance.k.val ≤ ↑(List.filter
+            (fun other_row => row.is_similar other_row == ok true) ↑kanon_instance.data).length))
+          (by simp_all)
+          hd
+      . assumption
+  . simp_all
+termination_by (kanon_instance.data.length - i.val).toNat
+decreasing_by repeat scalar_decr_tac
+
+@[pspec]
+theorem anonymize_spec
+  (kanon_instance: KAnonymity) :
+  ∃ anonymized_data, KAnonymity.anonymize kanon_instance = ok anonymized_data
+      ∧ anonymized_data = (
+        kanon_instance.data
+        |> List.filter (λ row => (
+          kanon_instance.data.val
+            |> List.filter (λ other_row ↦ Record.is_similar row other_row == ok true)
+            |> List.length) >= kanon_instance.k.val)) := by
+  rw [KAnonymity.anonymize]
+  progress
+  simp_all
 
 end kanon
