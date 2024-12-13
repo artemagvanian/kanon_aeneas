@@ -44,21 +44,21 @@ lemma take_append
                   repeat' assumption
           | inr _ => simp_all
 
-lemma leq_add_1 (x y : ℤ) : (x < y + 1 -> x <= y) := by
-  intro h
-  exact (Int.add_le_add_iff_right 1).mp h
+lemma leq_add_1 (x y : ℤ) (h: x < y + 1) : (x <= y) := (Int.add_le_add_iff_right 1).mp h
 
-lemma filter_count_true
+lemma filter_filter
   {α: Type}
   [hα : Inhabited α]
-  (c: Usize)
+  (c: alloc.vec.Vec α)
   (i: Usize)
   (l: alloc.vec.Vec α)
   (hi: i.val < l.length)
   (f: α -> Bool)
-  (hft: f (l.val.index i.toNat) == true)
-  (hc: (c: ℤ) = ↑(List.filter f (List.take i.toNat ↑l)).length) :
-  (c: ℤ) + 1#usize = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)).length := by
+  (hc: (c: List α) = ↑(List.filter f (List.take i.toNat ↑l))) :
+  ((f (l.val.index i.toNat) == true) ->
+    (c: List α) ++ [l.val.index i.toNat] = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)))
+  ∧ ((f (l.val.index i.toNat) == false) ->
+    (c: List α) = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l))) := by
   cases l with
   | mk l_val _ =>
       cases l_val with
@@ -70,7 +70,7 @@ lemma filter_count_true
         rw [take_append]
         repeat' simp_all [leq_add_1]
 
-lemma filter_count_false
+lemma filter_count
   {α: Type}
   [hα : Inhabited α]
   (c: Usize)
@@ -78,9 +78,11 @@ lemma filter_count_false
   (l: alloc.vec.Vec α)
   (hi: i.val < l.length)
   (f: α -> Bool)
-  (hft: f (l.val.index i.toNat) == false)
   (hc: (c: ℤ) = ↑(List.filter f (List.take i.toNat ↑l)).length) :
-  (c: ℤ) = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)).length := by
+  ((f (l.val.index i.toNat) == true) ->
+    (c: ℤ) + 1#usize = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)).length)
+  ∧ ((f (l.val.index i.toNat) == false) ->
+    (c: ℤ) = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)).length) := by
   cases l with
   | mk l_val _ =>
       cases l_val with
@@ -88,9 +90,7 @@ lemma filter_count_false
           have : i.val >= 0 := by scalar_tac
           have : i.val < 0 := by scalar_tac
           simp_all [not_lt_of_ge]
-      | cons h t =>
-        rw [take_append]
-        repeat' simp_all [leq_add_1]
+      | cons h t => repeat' simp_all [take_append, leq_add_1]
 
 @[pspec]
 theorem count_similar_rows_loop_spec
@@ -123,55 +123,41 @@ theorem count_similar_rows_loop_spec
       . progress as ⟨_, hn_similar₁⟩
         progress as ⟨_, hi₁⟩
         progress
-        . simp
-          rw [hi₁, hn_similar₁]
-          subst hr
-          exact
-            filter_count_true
-            n_similar i kanon_instance.data hil
-            (fun other_row => row.is_similar other_row == ok true)
-            (by
-              simp
-              rw [Record.is_similar]
-              split
-              repeat' simp_all
-              repeat rfl)
-            hn
+        . simp [hi₁, hn_similar₁, hr]
+          let f := fun other_row => row.is_similar other_row == ok true
+          have : f (kanon_instance.data.val.index i.toNat) == true := by
+            simp [f, Record.is_similar]
+            split
+            repeat' simp_all
+            repeat rfl
+          have := filter_count n_similar i kanon_instance.data hil f hn
+          simp_all
         . assumption
       . progress as ⟨_, hi₁⟩
         progress
-        . simp
-          rw [hi₁]
-          exact
-            filter_count_false
-            n_similar i kanon_instance.data hil
-            (fun other_row => row.is_similar other_row == ok true)
-            (by
-              simp
-              rw [Record.is_similar]
-              subst hr
-              split
-              repeat' simp_all
-              repeat rfl)
-            hn
+        . simp [hi₁]
+          let f := fun other_row => row.is_similar other_row == ok true
+          have : f (kanon_instance.data.val.index i.toNat) == false := by
+            simp [f, Record.is_similar, hr]
+            split
+            repeat' simp_all
+            repeat rfl
+          have := filter_count n_similar i kanon_instance.data hil f hn
+          simp_all
         . assumption
     . simp
       progress as ⟨_, hi₁⟩
       progress
       . simp
         rw [hi₁]
-        exact
-            filter_count_false
-            n_similar i kanon_instance.data hil
-            (fun other_row => row.is_similar other_row == ok true)
-            (by
-              simp
-              rw [Record.is_similar]
-              subst hr
-              split
-              repeat simp_all
-              rfl)
-            hn
+        let f := fun other_row => row.is_similar other_row == ok true
+        have : f (kanon_instance.data.val.index i.toNat) == false := by
+          simp [f, Record.is_similar, hr]
+          split
+          repeat' simp_all
+          repeat rfl
+        have := filter_count n_similar i kanon_instance.data hil f hn
+        simp_all
       . assumption
   . simp_all
 termination_by (kanon_instance.data.length - i.val).toNat
@@ -188,50 +174,6 @@ theorem count_similar_rows_spec
   rw [KAnonymity.count_similar_rows]
   progress
   simp_all
-
-lemma filter_filter_true
-  {α: Type}
-  [hα : Inhabited α]
-  (c: alloc.vec.Vec α)
-  (i: Usize)
-  (l: alloc.vec.Vec α)
-  (hi: i.val < l.length)
-  (f: α -> Bool)
-  (hft: f (l.val.index i.toNat) == true)
-  (hc: (c: List α) = ↑(List.filter f (List.take i.toNat ↑l))) :
-  (c: List α) ++ [l.val.index i.toNat] = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)) := by
-  cases l with
-  | mk l_val _ =>
-      cases l_val with
-      | nil =>
-          have : i.val >= 0 := by scalar_tac
-          have : i.val < 0 := by scalar_tac
-          simp_all [not_lt_of_ge]
-      | cons h t =>
-        rw [take_append]
-        repeat' simp_all [leq_add_1]
-
-lemma filter_filter_false
-  {α: Type}
-  [hα : Inhabited α]
-  (c: alloc.vec.Vec α)
-  (i: Usize)
-  (l: alloc.vec.Vec α)
-  (hi: i.val < l.length)
-  (f: α -> Bool)
-  (hft: f (l.val.index i.toNat) == false)
-  (hc: (c: List α) = ↑(List.filter f (List.take i.toNat ↑l))) :
-  (c: List α) = ↑(List.filter f (List.take ((i: ℤ) + 1#usize).toNat ↑l)) := by
-  cases l with
-  | mk l_val _ =>
-      cases l_val with
-      | nil =>
-          have : i.val >= 0 := by scalar_tac
-          have : i.val < 0 := by scalar_tac
-          simp_all [not_lt_of_ge]
-      | cons h t =>
-        rw [take_append]
-        repeat' simp_all [leq_add_1]
 
 @[pspec]
 theorem anonymize_loop_spec
@@ -266,31 +208,26 @@ theorem anonymize_loop_spec
     . progress as ⟨anonymized_data_i₁, hanonymized_data_i₁⟩
       . progress as ⟨i₁, hi₁⟩
         progress
-        . subst hr
-          simp_all
-        . simp
-          rw [hi₁, hanonymized_data_i₁]
-          subst hr
-          exact
-            filter_filter_true
+        . simp_all [hr]
+        . simp [hi₁, hanonymized_data_i₁, hr]
+          have :=
+            filter_filter
             anonymized_data_i i kanon_instance.data hil
             (fun row => decide (kanon_instance.k.val ≤ ↑(List.filter
               (fun other_row => row.is_similar other_row == ok true) ↑kanon_instance.data).length))
-            (by simp_all)
             hd
+          simp_all
         . assumption
     . progress as ⟨i₁, hi₁⟩
       progress
-      . simp
-        rw [hi₁]
-        subst hr
-        exact
-          filter_filter_false
+      . simp [hi₁, hr]
+        have :=
+          filter_filter
           anonymized_data_i i kanon_instance.data hil
           (fun row => decide (kanon_instance.k.val ≤ ↑(List.filter
             (fun other_row => row.is_similar other_row == ok true) ↑kanon_instance.data).length))
-          (by simp_all)
           hd
+        simp_all
       . assumption
   . simp_all
 termination_by (kanon_instance.data.length - i.val).toNat
